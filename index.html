@@ -29,11 +29,12 @@
 
     <div class="summary" aria-live="polite">
       <div class="stat"><span class="stat-label">Total</span><span class="stat-value" id="c-total">—</span></div>
-      <div class="stat stat-marked"><span class="stat-label">Marcados</span><span class="stat-value" id="c-marked">0</span></div>
+      <div class="stat stat-marked"><span class="stat-label">Contados</span><span class="stat-value" id="c-marked">0</span></div>
       <div class="stat"><span class="stat-label">Pendentes</span><span class="stat-value" id="c-pending">—</span></div>
       <div class="stat"><span class="stat-label">Concluído</span><span class="stat-value" id="c-pct">—</span></div>
     </div>
     <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><div class="bar-fill" id="bar-fill"></div></div>
+    <p class="hint hint-strong" id="line-paradas"></p>
     <p class="hint" id="hint-total">Informe o total de pacotes (PCTS) para calcular os pendentes.</p>
 
     <div class="card">
@@ -69,8 +70,21 @@
     </div>
 
     <div class="card card-grid">
-      <div class="legend"><span><i class="sw sw-on"></i>Marcado</span><span><i class="sw sw-off"></i>Pendente</span></div>
-      <div id="grid" class="grid-num" role="group" aria-label="Pacotes de 1 a 120"></div>
+      <div class="grid-head">
+        <div class="card-title">Paradas de 1 a 120</div>
+        <button id="btn-conf" type="button" class="btn btn-outline btn-chip" aria-pressed="false">Conferir paradas</button>
+      </div>
+      <p class="hint" id="mode-hint">Toque = +1 pacote · Segure = −1 pacote</p>
+      <div class="legend"><span><i class="sw sw-on"></i>Com pacote (número = quantidade)</span><span><i class="sw sw-off"></i>Sem pacote</span><span><i class="sw sw-falta"></i>Falta pacote</span></div>
+      <div id="grid" class="grid-num" role="group" aria-label="Paradas de 1 a 120"></div>
+    </div>
+
+    <div class="card" id="conf-card">
+      <div class="card-title">Conferência (bingo)</div>
+      <p class="hint" id="conf-empty">Para descobrir qual parada está faltando pacote, toque em “Conferir paradas” e informe, em cada parada, quantos pacotes ela deve ter. As que estiverem incompletas aparecem aqui.</p>
+      <p class="conf-summary" id="conf-summary" hidden></p>
+      <ul class="falta-list" id="falta-list" hidden></ul>
+      <button id="btn-faltas-usar" type="button" class="btn btn-outline btn-small" hidden>Usar total de faltas no campo Pacotes faltantes</button>
     </div>
 
     <div class="card">
@@ -101,7 +115,7 @@
         <label for="f-faltantes">Pacotes faltantes</label>
         <div class="row">
           <input id="f-faltantes" data-field="faltantes" type="text" inputmode="numeric" autocomplete="off">
-          <button id="btn-calc" type="button" class="btn btn-outline btn-small">Usar não marcados</button>
+          <button id="btn-calc" type="button" class="btn btn-outline btn-small">Usar pendentes</button>
         </div>
         <p class="hint">Pendente de marcação não é o mesmo que faltante na rota. O botão só sugere um valor; você pode digitar outro.</p>
       </div>
@@ -144,6 +158,36 @@
     <div class="modal-actions">
       <button type="button" id="modal-cancel" class="btn btn-outline">Cancelar</button>
       <button type="button" id="modal-ok" class="btn btn-primary">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Janela da parada (modo conferência) -->
+<div id="stop-modal" class="modal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="stop-title">
+    <div class="handle"></div>
+    <h3 id="stop-title">Parada</h3>
+    <div class="stepper-row">
+      <span class="stepper-label">Pacotes esperados</span>
+      <div class="stepper">
+        <button type="button" id="st-exp-minus" class="step-btn" aria-label="Tirar um esperado">−</button>
+        <span id="st-exp" class="step-val" aria-live="polite">0</span>
+        <button type="button" id="st-exp-plus" class="step-btn" aria-label="Somar um esperado">+</button>
+      </div>
+    </div>
+    <div class="stepper-row">
+      <span class="stepper-label">Pacotes contados</span>
+      <div class="stepper">
+        <button type="button" id="st-cnt-minus" class="step-btn" aria-label="Tirar um contado">−</button>
+        <span id="st-cnt" class="step-val" aria-live="polite">0</span>
+        <button type="button" id="st-cnt-plus" class="step-btn" aria-label="Somar um contado">+</button>
+      </div>
+    </div>
+    <p id="st-diff" class="st-diff"></p>
+    <div class="modal-actions">
+      <button type="button" id="st-zero" class="btn btn-outline">Zerar parada</button>
+      <button type="button" id="st-close" class="btn btn-primary">Pronto</button>
     </div>
   </div>
 </div>

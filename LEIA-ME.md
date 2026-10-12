@@ -3,6 +3,21 @@
 Ficha digital de controle de pacotes: grade de 1 a 120 em 6 colunas, contadores automáticos,
 AM/PM, rodapé operacional, PDF em uma folha A4, salvamento automático e histórico de fichas.
 
+## Como usar
+
+Os números de 1 a 120 são as **paradas**. Cada toque numa parada conta 1 pacote:
+parada com 2 pacotes = 2 toques, parada com 7 pacotes = 7 toques. O número no canto da parada
+mostra quantos pacotes ela tem, e o total de pacotes é a soma de todas.
+
+- **Toque** = +1 pacote. **Segurar** (meio segundo) = −1 pacote. **Desfazer** volta a última mudança.
+- **Conferir paradas** (o "bingo"): toque no botão, depois numa parada, e informe quantos pacotes ela
+  **deve ter** (esperado). Paradas incompletas ficam com borda vermelha e aparecem na lista
+  "Conferência" com o que falta ("Parada 5 — faltam 3", "Parada 9 — não veio").
+- Contados, pendentes (PCTS − contados) e faltantes são números separados. O campo "Pacotes faltantes"
+  é seu; os botões só sugerem um valor.
+- No PDF, cada parada com pacote sai com um risco por pacote e o "×N"; as faltas da conferência
+  saem numa caixa própria.
+
 Sem dependências e sem build: são arquivos estáticos (HTML, CSS e JavaScript).
 
 ## Rodar no computador

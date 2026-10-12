@@ -138,23 +138,62 @@ input:focus, textarea:focus { outline: 2px solid var(--ink); outline-offset: 1px
 
 /* ---------- grade 1..120 ---------- */
 .card-grid { padding: 12px; border: 1px solid var(--ink); gap: 10px; }
-.legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
+.grid-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.btn-chip { min-height: 38px; padding: 0 14px; font-size: 13px; border-radius: 999px; white-space: nowrap; }
+.btn-chip[aria-pressed="true"] { background: #1A1A1A; color: var(--yellow); border-color: #1A1A1A; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .sw { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
 .sw-on { background: var(--yellow); border: 1.5px solid #1A1A1A; }
 .sw-off { background: var(--cell); border: 1px solid var(--line-strong); }
+.sw-falta { background: var(--cell); border: 2px solid var(--danger); }
 .grid-num { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.grid-num.conf { outline: 2px dashed var(--muted); outline-offset: 4px; border-radius: 6px; }
 .num {
-  height: 42px; border-radius: 6px; padding: 0;
+  position: relative; display: flex; align-items: center; justify-content: center;
+  height: 46px; border-radius: 6px; padding: 8px 0 0;
   background: var(--cell); color: var(--ink);
   border: 1px solid var(--line-strong);
   font-size: 15px; font-weight: 400;
   touch-action: manipulation;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
 .num[aria-pressed="true"] {
   background: var(--yellow); color: #1A1A1A;
   border: 1.5px solid #1A1A1A; font-weight: 700;
 }
+.num.falta { border: 2px solid var(--danger); }
+.num .badge {
+  position: absolute; top: 2px; right: 3px;
+  min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: #1A1A1A; color: var(--yellow);
+  font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+}
+.num:not([aria-pressed="true"]) .badge { background: var(--danger); color: #fff; }
+.num .n { pointer-events: none; }
+.num .badge { pointer-events: none; }
+
+/* ---------- conferência ---------- */
+.hint-strong { font-weight: 600; color: var(--ink); }
+.conf-summary { margin: 0; font-size: 15px; font-weight: 700; }
+.falta-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.falta-list li {
+  background: var(--cell); border: 1px solid var(--line-strong); border-left: 4px solid var(--danger);
+  border-radius: 8px; padding: 9px 12px; font-size: 14px;
+}
+.falta-list li.f-none { font-weight: 700; }
+.falta-list li.f-extra { border-left-color: var(--muted); }
+.stepper-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.stepper-label { font-size: 15px; font-weight: 600; }
+.stepper { display: flex; align-items: center; gap: 10px; }
+.step-btn {
+  width: 52px; height: 52px; border-radius: 50%; padding: 0;
+  background: var(--card); color: var(--ink); border: 1.5px solid var(--ink);
+  font-size: 28px; font-weight: 600; line-height: 1;
+}
+.step-btn:active { transform: scale(.94); }
+.step-val { min-width: 44px; text-align: center; font-size: 30px; font-weight: 700; }
+.sheet .st-diff { margin: 0 0 16px; font-size: 15px; font-weight: 600; color: var(--ink); }
 
 /* ---------- histórico ---------- */
 .hist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }

@@ -1,11 +1,15 @@
-/* Controle de Entregas — ficha digital de pacotes.
-   Sem framework: tudo roda direto no navegador e salva no localStorage. */
+/* Controle de Entregas — ficha digital de paradas e pacotes.
+   Os números de 1 a 120 são as PARADAS. Cada toque numa parada conta 1 pacote
+   (parada com 7 pacotes = 7 toques). Sem framework: roda direto no navegador
+   e salva no localStorage. */
 (function () {
   'use strict';
 
   var STORE_KEY = 'ce:v1:fichas';
   var CURRENT_KEY = 'ce:v1:atual';
   var CELLS = 120;
+  var MAXC = 99;          /* máximo de pacotes por parada */
+  var HOLD_MS = 500;      /* tempo do toque longo (tira 1 pacote) */
   var TEXT_FIELDS = ['motorista', 'rota', 'data', 'pcts', 'agencia', 'parada1', 'total1', 'parada2', 'total2', 'faltantes', 'obs'];
 
   /* ---------- armazenamento (uma ficha = um registro isolado) ---------- */
@@ -25,11 +29,27 @@
     return {
       id: 'f' + agora.toString(36) + Math.random().toString(36).slice(2, 6),
       motorista: '', rota: '', data: hoje(), pcts: '', periodo: 'AM',
-      marked: {}, history: [],
+      counts: {},      /* parada -> pacotes contados */
+      expected: {},    /* parada -> pacotes esperados (conferência, opcional) */
+      history: [],     /* para desfazer: { n, was } */
       agencia: '', parada1: '', total1: '', parada2: '', total2: '',
       faltantes: '', obs: '',
       createdAt: agora, updatedAt: agora
     };
+  }
+
+  /* fichas salvas na versão anterior marcavam cada número uma vez só */
+  function migrar(f) {
+    if (!f.counts) {
+      f.counts = {};
+      if (f.marked) {
+        for (var k in f.marked) { if (f.marked[k]) f.counts[k] = 1; }
+      }
+    }
+    delete f.marked;
+    if (!f.expected) f.expected = {};
+    f.history = (f.history || []).filter(function (h) { return typeof h.was === 'number'; });
+    return f;
   }
 
   function lerStorage() {
@@ -59,7 +79,7 @@
   function fichaAtual() { return fichas[atualId]; }
 
   function temDados(f) {
-    if (Object.keys(f.marked).length > 0) return true;
+    if (Object.keys(f.counts).length > 0 || Object.keys(f.expected).length > 0) return true;
     for (var i = 0; i < TEXT_FIELDS.length; i++) {
       var k = TEXT_FIELDS[i];
       if (k === 'data') continue;
@@ -70,6 +90,7 @@
 
   function iniciar() {
     fichas = lerStorage();
+    for (var k in fichas) { migrar(fichas[k]); }
     var id = null;
     try { id = localStorage.getItem(CURRENT_KEY); } catch (e) {}
     if (!id || !fichas[id]) {
@@ -83,12 +104,26 @@
 
   /* ---------- contas ---------- */
   function contar(f) {
-    var marcados = Object.keys(f.marked).length;
+    var contados = 0, paradas = 0, faltaTotal = 0, temEsperado = false;
+    var faltas = [], sobras = [];
+    for (var n = 1; n <= CELLS; n++) {
+      var c = f.counts[n] || 0;
+      var e = f.expected[n] || 0;
+      contados += c;
+      if (c > 0) paradas++;
+      if (e > 0) temEsperado = true;
+      if (e > c) { faltas.push({ n: n, falta: e - c, esperado: e, contado: c }); faltaTotal += e - c; }
+      else if (c > e && e > 0) sobras.push({ n: n, sobra: c - e, esperado: e, contado: c });
+    }
     var total = parseInt(f.pcts, 10);
     if (!(total > 0)) total = 0;
-    var pendentes = total > 0 ? Math.max(0, total - marcados) : null;
-    var pct = total > 0 ? Math.min(100, Math.round(marcados / total * 100)) : null;
-    return { total: total, marcados: marcados, pendentes: pendentes, pct: pct };
+    var pendentes = total > 0 ? Math.max(0, total - contados) : null;
+    var pct = total > 0 ? Math.min(100, Math.round(contados / total * 100)) : null;
+    return {
+      total: total, contados: contados, paradas: paradas,
+      pendentes: pendentes, pct: pct,
+      temEsperado: temEsperado, faltas: faltas, faltaTotal: faltaTotal, sobras: sobras
+    };
   }
 
   function dataBR(iso) {
@@ -96,10 +131,17 @@
     return m ? m[3] + '/' + m[2] + '/' + m[1] : (iso || '');
   }
 
+  function plural(n, um, varios) { return n + ' ' + (n === 1 ? um : varios); }
+
   /* ---------- elementos ---------- */
   var $ = function (id) { return document.getElementById(id); };
   var gridEl = $('grid');
   var cellEls = [];
+  var modoConf = false;
+  var pressTimer = null;
+  var pressFired = false;
+
+  function numEl(e) { return e.target && e.target.closest ? e.target.closest('.num') : null; }
 
   function montarGrade() {
     /* 6 colunas x 20 linhas; a coluna 1 tem 1..20, a 2 tem 21..40, etc. */
@@ -110,55 +152,208 @@
         var b = document.createElement('button');
         b.type = 'button';
         b.className = 'num';
-        b.textContent = String(n);
         b.setAttribute('data-n', String(n));
         b.setAttribute('aria-pressed', 'false');
-        b.setAttribute('aria-label', 'Pacote ' + n);
+        var num = document.createElement('span');
+        num.className = 'n';
+        num.textContent = String(n);
+        var badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.hidden = true;
+        b.appendChild(num);
+        b.appendChild(badge);
+        b._badge = badge;
         frag.appendChild(b);
         cellEls[n] = b;
       }
     }
     gridEl.appendChild(frag);
+
+    /* toque = +1 pacote; segurar = -1 pacote (na conferência, toque abre a parada) */
+    gridEl.addEventListener('pointerdown', function (e) {
+      var t = numEl(e);
+      pressFired = false;
+      clearTimeout(pressTimer);
+      pressTimer = null;
+      if (!t || modoConf) return;
+      var n = parseInt(t.getAttribute('data-n'), 10);
+      pressTimer = setTimeout(function () {
+        pressTimer = null;
+        pressFired = true;
+        var atual = fichaAtual().counts[n] || 0;
+        if (atual > 0 && setCount(n, atual - 1)) {
+          vibrar(25);
+          aviso('Parada ' + n + ': ' + plural(atual - 1, 'pacote', 'pacotes'));
+        }
+      }, HOLD_MS);
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+      gridEl.addEventListener(ev, function () { clearTimeout(pressTimer); pressTimer = null; });
+    });
+    gridEl.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     gridEl.addEventListener('click', function (e) {
-      var t = e.target.closest ? e.target.closest('.num') : null;
+      var t = numEl(e);
       if (!t) return;
-      alternar(parseInt(t.getAttribute('data-n'), 10));
+      if (pressFired) { pressFired = false; return; }
+      var n = parseInt(t.getAttribute('data-n'), 10);
+      if (modoConf) abrirParada(n);
+      else incrementar(n);
     });
   }
 
-  function alternar(n) {
+  function vibrar(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+  /* define a quantidade de pacotes de uma parada; registra para desfazer */
+  function setCount(n, v, registrar) {
     var f = fichaAtual();
-    var estava = !!f.marked[n];
-    if (estava) delete f.marked[n]; else f.marked[n] = true;
-    f.history.push({ n: n, was: estava });
-    if (f.history.length > 500) f.history.shift();
-    cellEls[n].setAttribute('aria-pressed', estava ? 'false' : 'true');
+    var antes = f.counts[n] || 0;
+    v = Math.max(0, Math.min(MAXC, v));
+    if (v === antes) return false;
+    if (v === 0) delete f.counts[n]; else f.counts[n] = v;
+    if (registrar !== false) {
+      f.history.push({ n: n, was: antes });
+      if (f.history.length > 500) f.history.shift();
+    }
+    pintar(n);
     atualizarContadores();
     gravar();
-    try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+    return true;
+  }
+
+  function incrementar(n) {
+    var atual = fichaAtual().counts[n] || 0;
+    if (!setCount(n, atual + 1)) { aviso('Máximo de ' + MAXC + ' pacotes por parada'); return; }
+    vibrar(8);
   }
 
   function desfazer() {
     var f = fichaAtual();
     var ult = f.history.pop();
     if (!ult) { aviso('Nada para desfazer'); return; }
-    if (ult.was) f.marked[ult.n] = true; else delete f.marked[ult.n];
-    cellEls[ult.n].setAttribute('aria-pressed', ult.was ? 'true' : 'false');
-    atualizarContadores();
-    gravar();
-    aviso('Marcação do ' + ult.n + ' desfeita');
+    setCount(ult.n, ult.was, false);
+    aviso('Parada ' + ult.n + ': ' + plural(ult.was, 'pacote', 'pacotes'));
   }
+
+  /* redesenha uma parada */
+  function pintar(n) {
+    var f = fichaAtual();
+    var c = f.counts[n] || 0;
+    var e = f.expected[n] || 0;
+    var el = cellEls[n];
+    el.setAttribute('aria-pressed', c > 0 ? 'true' : 'false');
+    el.classList.toggle('falta', e > c);
+    var t = e > 0 ? c + '/' + e : (c > 0 ? String(c) : '');
+    el._badge.textContent = t;
+    el._badge.hidden = t === '';
+    el.setAttribute('aria-label', 'Parada ' + n + ': ' + plural(c, 'pacote', 'pacotes') + (e > 0 ? ' de ' + e + ' esperados' : ''));
+  }
+
+  function pintarTudo() { for (var n = 1; n <= CELLS; n++) pintar(n); }
 
   function atualizarContadores() {
     var c = contar(fichaAtual());
     $('c-total').textContent = c.total > 0 ? c.total : '—';
-    $('c-marked').textContent = c.marcados;
+    $('c-marked').textContent = c.contados;
     $('c-pending').textContent = c.pendentes === null ? '—' : c.pendentes;
     $('c-pct').textContent = c.pct === null ? '—' : c.pct + '%';
     $('bar-fill').style.width = (c.pct || 0) + '%';
     $('bar').setAttribute('aria-valuenow', String(c.pct || 0));
     $('hint-total').hidden = c.total > 0;
+    $('line-paradas').textContent = plural(c.paradas, 'parada com pacote', 'paradas com pacote') + ' · ' + plural(c.contados, 'pacote contado', 'pacotes contados');
+    desenharFaltas(c);
   }
+
+  /* ---------- conferência (bingo): qual parada está faltando pacote ---------- */
+  function desenharFaltas(c) {
+    var lista = $('falta-list');
+    lista.innerHTML = '';
+    $('conf-empty').hidden = c.temEsperado;
+    $('conf-summary').hidden = !c.temEsperado;
+    $('btn-faltas-usar').hidden = !c.temEsperado;
+    lista.hidden = !c.temEsperado;
+    if (!c.temEsperado) return;
+    $('conf-summary').textContent = c.faltaTotal === 0
+      ? 'Nenhuma parada com pacote faltando.'
+      : 'Faltam ' + plural(c.faltaTotal, 'pacote', 'pacotes') + ' em ' + plural(c.faltas.length, 'parada', 'paradas') + ':';
+    function item(txt, cls) {
+      var li = document.createElement('li');
+      li.textContent = txt;
+      if (cls) li.className = cls;
+      lista.appendChild(li);
+    }
+    c.faltas.forEach(function (x) {
+      if (x.contado === 0) item('Parada ' + x.n + ' — não veio (esperado ' + x.esperado + ')', 'f-none');
+      else item('Parada ' + x.n + ' — faltam ' + x.falta + ' (contados ' + x.contado + ' de ' + x.esperado + ')');
+    });
+    c.sobras.forEach(function (x) {
+      item('Parada ' + x.n + ' — ' + x.sobra + ' a mais (contados ' + x.contado + ', esperado ' + x.esperado + ')', 'f-extra');
+    });
+  }
+
+  function usarFaltasConferencia() {
+    var c = contar(fichaAtual());
+    var f = fichaAtual();
+    f.faltantes = String(c.faltaTotal);
+    $('f-faltantes').value = f.faltantes;
+    gravar();
+    aviso('Faltantes: ' + c.faltaTotal + '. Ajuste se precisar.');
+  }
+
+  function alternarModo() {
+    modoConf = !modoConf;
+    clearTimeout(pressTimer);
+    $('btn-conf').setAttribute('aria-pressed', modoConf ? 'true' : 'false');
+    $('btn-conf').textContent = modoConf ? 'Sair da conferência' : 'Conferir paradas';
+    $('mode-hint').textContent = modoConf
+      ? 'Conferência: toque numa parada para informar quantos pacotes ela deve ter e quantos você contou.'
+      : 'Toque = +1 pacote · Segure = −1 pacote';
+    gridEl.classList.toggle('conf', modoConf);
+  }
+
+  /* janela da parada (modo conferência) */
+  var stopN = null;
+  function abrirParada(n) {
+    stopN = n;
+    desenharParada();
+    $('stop-modal').hidden = false;
+    $('st-close').focus();
+  }
+  function desenharParada() {
+    var f = fichaAtual();
+    var e = f.expected[stopN] || 0;
+    var c = f.counts[stopN] || 0;
+    $('stop-title').textContent = 'Parada ' + stopN;
+    $('st-exp').textContent = e;
+    $('st-cnt').textContent = c;
+    $('st-diff').textContent = e === 0
+      ? 'Informe quantos pacotes esta parada deve ter.'
+      : c < e ? 'Faltam ' + plural(e - c, 'pacote', 'pacotes') + ' nesta parada.'
+      : c === e ? 'Parada completa.'
+      : (c - e) + ' a mais que o esperado.';
+  }
+  function mudarEsperado(d) {
+    var f = fichaAtual();
+    var v = Math.max(0, Math.min(MAXC, (f.expected[stopN] || 0) + d));
+    if (v === 0) delete f.expected[stopN]; else f.expected[stopN] = v;
+    pintar(stopN);
+    atualizarContadores();
+    gravar();
+    desenharParada();
+  }
+  function mudarContado(d) {
+    setCount(stopN, (fichaAtual().counts[stopN] || 0) + d);
+    desenharParada();
+  }
+  function zerarParada() {
+    var f = fichaAtual();
+    delete f.expected[stopN];
+    setCount(stopN, 0);
+    pintar(stopN);
+    atualizarContadores();
+    gravar();
+    desenharParada();
+  }
+  function fecharParada() { $('stop-modal').hidden = true; stopN = null; }
 
   function desenharFicha() {
     var f = fichaAtual();
@@ -167,9 +362,7 @@
       var el = document.querySelector('[data-field="' + k + '"]');
       if (el) el.value = f[k] || '';
     }
-    for (var n = 1; n <= CELLS; n++) {
-      cellEls[n].setAttribute('aria-pressed', f.marked[n] ? 'true' : 'false');
-    }
+    pintarTudo();
     var ps = document.querySelectorAll('[data-period]');
     for (var j = 0; j < ps.length; j++) {
       ps[j].setAttribute('aria-pressed', ps[j].getAttribute('data-period') === f.periodo ? 'true' : 'false');
@@ -209,15 +402,18 @@
   /* ---------- ações ---------- */
   function limparTudo() {
     var f = fichaAtual();
-    if (Object.keys(f.marked).length === 0) { aviso('Não há marcações'); return; }
-    confirmar('Limpar todas as marcações?', 'As ' + Object.keys(f.marked).length + ' marcações desta ficha serão apagadas. Os campos preenchidos ficam.', 'Limpar')
+    var c = contar(f);
+    if (c.contados === 0 && !c.temEsperado) { aviso('Não há marcações'); return; }
+    confirmar('Limpar todas as paradas?',
+      'Os ' + plural(c.contados, 'pacote contado', 'pacotes contados') + ' e a conferência desta ficha serão apagados. Os campos preenchidos ficam.', 'Limpar')
       .then(function (ok) {
         if (!ok) return;
-        f.marked = {};
+        f.counts = {};
+        f.expected = {};
         f.history = [];
         desenharFicha();
         gravar();
-        aviso('Marcações apagadas');
+        aviso('Paradas limpas');
       });
   }
 
@@ -241,7 +437,7 @@
     }
   }
 
-  function usarNaoMarcados() {
+  function usarPendentes() {
     var c = contar(fichaAtual());
     if (c.pendentes === null) { aviso('Preencha o PCTS primeiro'); return; }
     var f = fichaAtual();
@@ -303,7 +499,7 @@
 
       var nums = document.createElement('div');
       nums.className = 'hist-nums';
-      [['Total', c.total > 0 ? c.total : '—'], ['Marcados', c.marcados], ['Pendentes', c.pendentes === null ? '—' : c.pendentes]]
+      [['Total', c.total > 0 ? c.total : '—'], ['Contados', c.contados], ['Pendentes', c.pendentes === null ? '—' : c.pendentes]]
         .forEach(function (p) {
           var d = document.createElement('div');
           var b = document.createElement('b'); b.textContent = p[1];
@@ -387,9 +583,18 @@
     $('btn-undo').addEventListener('click', desfazer);
     $('btn-clear').addEventListener('click', limparTudo);
     $('btn-new').addEventListener('click', criarNova);
-    $('btn-calc').addEventListener('click', usarNaoMarcados);
+    $('btn-calc').addEventListener('click', usarPendentes);
+    $('btn-conf').addEventListener('click', alternarModo);
+    $('btn-faltas-usar').addEventListener('click', usarFaltasConferencia);
     $('btn-pdf').addEventListener('click', function () { exportarPDF(fichaAtual()); });
     $('btn-pdf-big').addEventListener('click', function () { exportarPDF(fichaAtual()); });
+    $('st-exp-minus').addEventListener('click', function () { mudarEsperado(-1); });
+    $('st-exp-plus').addEventListener('click', function () { mudarEsperado(1); });
+    $('st-cnt-minus').addEventListener('click', function () { mudarContado(-1); });
+    $('st-cnt-plus').addEventListener('click', function () { mudarContado(1); });
+    $('st-zero').addEventListener('click', zerarParada);
+    $('st-close').addEventListener('click', fecharParada);
+    document.querySelector('#stop-modal [data-close]').addEventListener('click', fecharParada);
     var tabs = document.querySelectorAll('.tab');
     for (var t = 0; t < tabs.length; t++) {
       tabs[t].addEventListener('click', function (e) { irPara(e.currentTarget.getAttribute('data-tab')); });

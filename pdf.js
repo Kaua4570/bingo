@@ -72,7 +72,7 @@
     var pct = c.pct === null ? '-' : c.pct + '%';
     var cols = [
       ['TOTAL', c.total > 0 ? String(c.total) : '-'],
-      ['MARCADOS', String(c.marcados)],
+      ['CONTADOS', String(c.contados)],
       ['PENDENTES', pend],
       ['CONCLUÍDO', pct]
     ];
@@ -99,21 +99,29 @@
         var n = col * 20 + r + 1;
         var x = M + col * colW;
         var yy = gy + r * rowH;
-        var marcado = !!f.marked[n];
+        var cnt = (f.counts && f.counts[n]) || 0;
+        var marcado = cnt > 0;
         if (marcado) {
           doc.setFillColor(YELLOW[0], YELLOW[1], YELLOW[2]);
           doc.rect(x, yy, colW, rowH, 'FD');
         } else {
           doc.rect(x, yy, colW, rowH);
         }
+        /* número da parada à esquerda; um risco por pacote no meio; ×N à direita */
         doc.setFont('helvetica', marcado ? 'bold' : 'normal');
         doc.setFontSize(11);
-        doc.text(String(n), x + colW / 2, yy + rowH / 2 + 1.6, { align: 'center' });
+        doc.text(String(n), x + 3, yy + rowH / 2 + 1.6);
         if (marcado) {
-          /* risco diagonal: a marcação continua visível em impressão preto e branco */
-          doc.setLineWidth(0.5);
-          doc.line(x + colW / 2 - 6, yy + rowH - 1.6, x + colW / 2 + 6, yy + 1.6);
+          doc.setLineWidth(0.45);
+          var riscos = Math.min(cnt, 8);
+          for (var t = 0; t < riscos; t++) {
+            var tx = x + 12 + t * 1.35;
+            doc.line(tx, yy + 2, tx, yy + rowH - 2);
+          }
           doc.setLineWidth(0.3);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.text('×' + cnt, x + colW - 2, yy + rowH / 2 + 1.5, { align: 'right' });
         }
       }
     }
@@ -133,6 +141,27 @@
     campo(M, fy, W, 10, 'Pacotes faltantes', f.faltantes);
     fy += 11;
 
+    /* conferência: paradas com pacote faltando (só aparece se houver) */
+    if (c.faltas && c.faltas.length) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      var partes = c.faltas.map(function (x) {
+        return 'P' + x.n + (x.contado === 0 ? ' não veio (' + x.esperado + ')' : ' -' + x.falta);
+      });
+      var txtF = 'Faltam ' + c.faltaTotal + ' em ' + c.faltas.length + ' parada(s): ' + partes.join('   |   ');
+      var ls = doc.splitTextToSize(txtF, W - 3.2);
+      if (ls.length > 5) { ls = ls.slice(0, 5); ls[4] = ls[4].replace(/.{0,3}$/, '...'); }
+      var hF = 5 + ls.length * 3.2;
+      doc.rect(M, fy, W, hF);
+      doc.setFontSize(6.5);
+      doc.setTextColor(90);
+      doc.text('FALTAS POR PARADA (CONFERÊNCIA)', M + 1.6, fy + 3.2);
+      doc.setTextColor(0);
+      doc.setFontSize(7.5);
+      doc.text(ls, M + 1.6, fy + 6.6);
+      fy += hF + 1;
+    }
+
     var obsH = 287 - fy;              // até a margem inferior
     doc.rect(M, fy, W, obsH);
     doc.setFont('helvetica', 'normal');
@@ -142,7 +171,7 @@
     doc.setTextColor(0);
     doc.setFontSize(9);
     var linhas = doc.splitTextToSize(String(f.obs || ''), W - 3.2);
-    var maxLinhas = Math.floor((obsH - 6) / 4);
+    var maxLinhas = Math.max(1, Math.floor((obsH - 6) / 4));
     if (linhas.length > maxLinhas) {
       linhas = linhas.slice(0, maxLinhas);
       linhas[maxLinhas - 1] = linhas[maxLinhas - 1].replace(/.{0,3}$/, '...');

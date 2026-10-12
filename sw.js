@@ -1,5 +1,5 @@
 /* Service worker: deixa o app abrir sem internet. */
-var VERSION = 'controle-entregas-v2';
+var VERSION = 'controle-entregas-v3';
 var FILES = [
   './',
   'index.html',
